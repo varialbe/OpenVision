@@ -1,0 +1,86 @@
+
+name: Build OpenVision IPA (unsigned)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare configuration
+        shell: bash
+        env:
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_CLIENT_TOKEN: ${{ secrets.META_CLIENT_TOKEN }}
+          APP_BUNDLE_ID: ${{ vars.APP_BUNDLE_ID }}
+        run: |
+          cp OpenVision/Config/Config.swift.example OpenVision/Config/Config.swift
+          BUNDLE_ID="${APP_BUNDLE_ID:-com.example.openvisionpersonal}"
+          {
+            echo 'DEVELOPMENT_TEAM = '
+            printf 'PRODUCT_BUNDLE_IDENTIFIER = %s\n' "$BUNDLE_ID"
+            printf 'META_APP_ID = %s\n' "${META_APP_ID:-}"
+            printf 'CLIENT_TOKEN = %s\n' "${META_CLIENT_TOKEN:-}"
+            echo 'APP_LINK_URL_SCHEME = openvision'
+          } > Config.xcconfig
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Generate Xcode project
+        shell: bash
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen generate
+
+      - name: Prepare Metal compiler
+        shell: bash
+        run: |
+          if ! xcrun --find metal >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+
+      - name: Build iOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project OpenVision.xcodeproj \
+            -scheme OpenVision \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath DerivedData \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            DEVELOPMENT_TEAM= \
+            build
+
+      - name: Create IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP='DerivedData/Build/Products/Debug-iphoneos/OpenVision.app'
+          test -d "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry OpenVision-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenVision-unsigned
+          path: OpenVision-unsigned.ipa
+          retention-days: 7
