@@ -65,7 +65,14 @@ enum CloudChat {
                 "messages": messages,
             ]
             if offerTools { body["tools"] = tools }
-            if let maxTokens { body["max_tokens"] = maxTokens }
+            if model == "gpt-6-luna" {
+                body["reasoning_effort"] = "none"
+                if let maxTokens {
+                    body["max_completion_tokens"] = maxTokens
+                }
+            } else if let maxTokens {
+                body["max_tokens"] = maxTokens
+            }
             let (data, response) = try await send(try JSONSerialization.data(withJSONObject: body))
             guard let http = response as? HTTPURLResponse else { throw CloudChatError.noResponse(label) }
             guard (200...299).contains(http.statusCode) else {
